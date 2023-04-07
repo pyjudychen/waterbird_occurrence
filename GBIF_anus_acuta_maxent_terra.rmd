@@ -1,0 +1,117 @@
+---
+title: Maxent model of Northern pintail (Anus acuta)
+author: Pin-Yuan Chen | Winter 2023
+date: 1/24/2023
+output: html_document
+---
+
+# Load packages and data
+```{r}
+#library(rgbif)
+#library(maptools)
+# install.packages('ENMeval')
+#library(ENMeval)
+#library(raster)
+#library(dismo)
+# install.packages('rJava')
+
+#Sys.setenv('JAVA_HOME'="C:/Program Files/Java/jdk-19/")
+#library(rJava)
+#library(rethinking)
+#library(predicts)
+
+```
+
+## GBIF data
+```{r}
+#sp <- geodata::sp_occurrence("Anas", "acuta", download=FALSE)
+aacuta <- read.csv('aacuta_clean.csv')
+head(aacuta)
+
+# Check the spatial resolution of the data
+aacuta$decimalLongitude[1:6]
+aacuta$decimalLatitude[1:6]
+```
+Database for occurrence records of the selected species from the gbif database. The search for occurrences was limited to 20,000 records in California. Duplicate records and data without coordinates has been removed. The remained data points are 2848 obs. with  17 variables.
+
+## Environmental data
+```{r}
+envs <- geodata::worldclim_global(var = "bio", res = 5, path=".")
+envs <- envs[[c('bio01', 'bio04', 'bio05', 'bio06', 'bio12', 'bio16', 'bio17')]]
+plot(envs, xlim = c(-130,-80), ylim = c(20, 50))
+
+```
+
+[WorldClim dataset (Hijmans 2005)](https://www.worldclim.org/data/bioclim.html)
+
+* BIO1 = Annual Mean Temperature
+* BIO4 = Temperature Seasonality (standard deviation ×100)
+* BIO5 = Max Temperature of Warmest Month
+* BIO6 = Min Temperature of Coldest Month**
+* BIO12 = Annual Precipitation
+* BIO16 = Precipitation of Wettest Quarter**
+* BIO17 = Precipitation of Driest Quarter**
+
+```{r}
+wrld <- geodata::world(path=".")
+plot(envs, 1, xlim = c(-130,-80), ylim = c(20, 50)) 
+lines(wrld)
+points(aacuta[, c("lon", "lat")], col = 'blue')
+```
+
+# Extract values from rasters
+
+```{r}
+# extract environmental values at aacuta grid cells
+locs.vals <- extract(envs, aacuta[, c('lon', 'lat')])
+# extract environmental values at occ grid cells
+aacuta <- na.omit(aacuta)
+print(paste("Records remaining:", nrow(aacuta)))
+
+xr <- range(aacuta$lon)
+yr <- range(aacuta$lat)
+bgExt <- ext(c(xr, yr)) + 0.5
+
+# crop the environmental rasters by the background extent shape
+envsBgCrop <- crop(envs, bgExt)
+# sample random background points
+bg.xy <- dismo::randomPoints(envsBgMsk, 5000)
+# convert matrix output to data frame
+bg.xy <- as.data.frame(bg.xy)
+print(cat("Number of background points: ", as.character(nrow(bg.xy))))
+```
+
+# Build and Evaluate Niche Model
+```{r}
+occs.xy <- aacuta[c('lon', 'lat')]
+group.data <- ENMeval::get.randomkfold(occ=occs.xy, bg=bg.xy, kfolds=3)
+
+# pull out the occurrence and background partition group numbers from the list
+occs.grp <- group.data[[1]]
+bg.grp <- group.data[[2]]
+
+fold <- kfold(occs.xy, k=5)
+occtest <- occs.xy[fold == 1, ]
+occtrain <- occs.xy[fold != 1, ]
+
+```
+
+# Run Maxent Model & see the maxent results in a browser
+```{r}
+me <- maxent(envsBgMsk, data.frame(occtrain), args=c("-J", "-P"))
+me
+response(me)
+plot(me)
+
+e1 <- evaluate(me, p = occtest, a = bg.xy, x = envsBgMsk)
+plot(e1, 'ROC')+
+  mtext(substitute(paste('Sensitivity vs. 1-specificity for ', italic('Anas acuta'))))
+  
+threshold(e1)
+
+r <- predict(me, envsBgMsk)
+plot(r)+
+  points(occs.xy, col = col.alpha('black', 0.2), pch = 16, cex = 0.5)+
+  mtext(substitute(paste('Suitability of locations in 2021 for ', italic('Anas acuta'))))
+```
+
