@@ -7,25 +7,26 @@ output: html_document
 
 # Load packages and data
 ```{r}
-library(rgbif)
-library(maptools)
+#library(rgbif)
+#library(maptools)
 # install.packages('ENMeval')
-library(ENMeval)
-library(raster)
-library(dismo)
+#library(ENMeval)
+#library(raster)
+#library(dismo)
 # install.packages('rJava')
 
-Sys.setenv('JAVA_HOME'="C:/Program Files/Java/jdk-19/")
-library(rJava)
-library(rethinking)
+#Sys.setenv('JAVA_HOME'="C:/Program Files/Java/jdk-19/")
+#library(rJava)
+#library(rethinking)
+#library(predicts)
 
 ```
 
 ## GBIF data
 ```{r}
-setwd('C:/Users/judy8/Box/PhD_UCD/Data')
+#sp <- geodata::sp_occurrence("Anas", "acuta", download=FALSE)
 aacuta <- read.csv('aacuta_clean.csv')
-str(aacuta)
+head(aacuta)
 
 # Check the spatial resolution of the data
 aacuta$decimalLongitude[1:6]
@@ -35,19 +36,7 @@ Database for occurrence records of the selected species from the gbif database. 
 
 ## Environmental data
 ```{r}
-envs <- raster::getData(name = "worldclim", var = "bio", res = 10, lat = c(20, 50), lon = c(-130,-80))
-envRes <- 10
-if (envRes == 0.5) {
-  i <- grep('_', names(envs))
-  editNames <- sapply(strsplit(names(envs)[i], '_'), function(x) x[1])
-  names(envs)[i] <- editNames
-}
-class(envs)
-
-i <- grep('bio[0-9]$', names(envs))
-editNames <- paste('bio', sapply(strsplit(names(envs)[i], 'bio'), function(x) x[2]), sep='0')
-names(envs)[i] <- editNames
-
+envs <- geodata::worldclim_global(var = "bio", res = 5, path=".")
 envs <- envs[[c('bio01', 'bio04', 'bio05', 'bio06', 'bio12', 'bio16', 'bio17')]]
 plot(envs, xlim = c(-130,-80), ylim = c(20, 50))
 
@@ -64,33 +53,27 @@ plot(envs, xlim = c(-130,-80), ylim = c(20, 50))
 * BIO17 = Precipitation of Driest Quarter**
 
 ```{r}
-data(wrld_simpl)
+wrld <- geodata::world(path=".")
 plot(envs, 1, xlim = c(-130,-80), ylim = c(20, 50)) 
-plot(wrld_simpl, add = TRUE)+
-  # mtext('Annual Mean Temperature')
-  points(x = aacuta$lon, y = aacuta$lat, col = 'blue')
-colnames(aacuta) 
+lines(wrld)
+points(aacuta[, c("lon", "lat")], col = 'blue')
 ```
+
 # Extract values from rasters
+
 ```{r}
 # extract environmental values at aacuta grid cells
-locs.vals <- raster::extract(envs[[1]], aacuta[, c('lon', 'lat')])
+locs.vals <- extract(envs, aacuta[, c('lon', 'lat')])
 # extract environmental values at occ grid cells
-aacuta <- aacuta[!is.na(locs.vals), ]  
-print(cat("Records remain: ", as.character(nrow(aacuta))))
+aacuta <- na.omit(aacuta)
+print(paste("Records remaining:", nrow(aacuta)))
 
-xmin <- min(aacuta$lon)
-xmax <- max(aacuta$lon)
-ymin <- min(aacuta$lat)
-ymax <- max(aacuta$lat)
-bb <- matrix(c(xmin, xmin, xmax, xmax, xmin, ymin, ymax, ymax, ymin, ymin), ncol=2)
-bgExt <- sp::SpatialPolygons(list(sp::Polygons(list(sp::Polygon(bb)), 1)))
-bgExt <- rgeos::gBuffer(bgExt, width = 0.5)
+xr <- range(aacuta$lon)
+yr <- range(aacuta$lat)
+bgExt <- ext(c(xr, yr)) + 0.5
 
 # crop the environmental rasters by the background extent shape
-envsBgCrop <- raster::crop(envs, bgExt)
-# mask the background extent shape from the cropped raster
-envsBgMsk <- raster::mask(envsBgCrop, bgExt)
+envsBgCrop <- crop(envs, bgExt)
 # sample random background points
 bg.xy <- dismo::randomPoints(envsBgMsk, 5000)
 # convert matrix output to data frame
