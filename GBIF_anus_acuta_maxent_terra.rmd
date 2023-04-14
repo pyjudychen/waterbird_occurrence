@@ -3,6 +3,8 @@ title: Maxent model of Northern pintail (Anus acuta)
 author: Pin-Yuan Chen | Winter 2023
 date: 1/24/2023
 output: html_document
+editor_options: 
+  chunk_output_type: console
 ---
 
 # Load packages and data
@@ -20,6 +22,7 @@ output: html_document
 #library(rethinking)
 #library(predicts)
 
+library(terra)
 ```
 
 ## GBIF data
@@ -36,10 +39,11 @@ Database for occurrence records of the selected species from the gbif database. 
 
 ## Environmental data
 ```{r}
-envs <- geodata::worldclim_global(var = "bio", res = 5, path=".")
-envs <- envs[[c('bio01', 'bio04', 'bio05', 'bio06', 'bio12', 'bio16', 'bio17')]]
-plot(envs, xlim = c(-130,-80), ylim = c(20, 50))
 
+envs <- geodata::worldclim_global(var = "bio", res = 5, path=".")
+b <- c('bio_1', 'bio_4', 'bio_5', 'bio_6', 'bio_12', 'bio_16', 'bio_17')
+nms <- paste0("wc2.1_5m_", b)
+envs <- envs[[nms]]
 ```
 
 [WorldClim dataset (Hijmans 2005)](https://www.worldclim.org/data/bioclim.html)
@@ -63,55 +67,65 @@ points(aacuta[, c("lon", "lat")], col = 'blue')
 
 ```{r}
 # extract environmental values at aacuta grid cells
+aacuta <- na.omit(aacuta[, c('lon', 'lat')])
 locs.vals <- extract(envs, aacuta[, c('lon', 'lat')])
 # extract environmental values at occ grid cells
-aacuta <- na.omit(aacuta)
 print(paste("Records remaining:", nrow(aacuta)))
 
-xr <- range(aacuta$lon)
-yr <- range(aacuta$lat)
-bgExt <- ext(c(xr, yr)) + 0.5
+bgExt <- ext(apply(aacuta[, c('lon', 'lat')], 2, range)) + 0.5
+lines(bgExt, lwd=2, col="red")
 
 # crop the environmental rasters by the background extent shape
 envsBgCrop <- crop(envs, bgExt)
 # sample random background points
-bg.xy <- dismo::randomPoints(envsBgMsk, 5000)
+bg.xy <- predicts::backgroundSample(envsBgCrop, 5000)
 # convert matrix output to data frame
-bg.xy <- as.data.frame(bg.xy)
-print(cat("Number of background points: ", as.character(nrow(bg.xy))))
+print(paste("Number of background points:", nrow(bg.xy)))
+
+dat <- rbind(locs.vals, bg.vals)
+p <- c(rep(1, nrow(locs.vals)), rep(0, nrow(bg.vals)))
+MaxEnt(dat, p)
 ```
 
-# Build and Evaluate Niche Model
-```{r}
-occs.xy <- aacuta[c('lon', 'lat')]
-group.data <- ENMeval::get.randomkfold(occ=occs.xy, bg=bg.xy, kfolds=3)
-
-# pull out the occurrence and background partition group numbers from the list
-occs.grp <- group.data[[1]]
-bg.grp <- group.data[[2]]
-
-fold <- kfold(occs.xy, k=5)
-occtest <- occs.xy[fold == 1, ]
-occtrain <- occs.xy[fold != 1, ]
-
-```
 
 # Run Maxent Model & see the maxent results in a browser
 ```{r}
-me <- maxent(envsBgMsk, data.frame(occtrain), args=c("-J", "-P"))
+me <- MaxEnt(envsBgCrop, aacuta, args=c("-J", "-P"))
 me
-response(me)
+#partialResponse(me)
 plot(me)
 
-e1 <- evaluate(me, p = occtest, a = bg.xy, x = envsBgMsk)
-plot(e1, 'ROC')+
-  mtext(substitute(paste('Sensitivity vs. 1-specificity for ', italic('Anas acuta'))))
-  
-threshold(e1)
-
-r <- predict(me, envsBgMsk)
-plot(r)+
-  points(occs.xy, col = col.alpha('black', 0.2), pch = 16, cex = 0.5)+
-  mtext(substitute(paste('Suitability of locations in 2021 for ', italic('Anas acuta'))))
 ```
 
+```{r}
+r <- predict(me, envsBgCrop)
+plot(r)
+points(occs.xy, col=gray.colors(1, alpha=.2), pch = 16, cex = 0.5)
+mtext(substitute(paste('Suitability for ', italic('Anas acuta'))))
+```
+
+
+# Evaluate SDM
+
+```{r}
+occs.xy <- aacuta[c('lon', 'lat')]
+nfolds <- 5
+set.seed(543)
+fold <- folds(occs.xy, k=nfolds)
+auc <- rep(NA, nfolds)
+
+for (i in 1:nfolds) {
+  occtest <- occs.xy[fold == i, ]
+  occtrain <- occs.xy[fold != i, ]
+  metst <- MaxEnt(envsBgCrop, occtrain, args=c("-J", "-P"))
+  e <- pa_evaluate(me, p = occtest, a = bg.xy, x = envsBgCrop)
+  auc[i] <- e@stats["auc"]  
+}  
+mean(auc)
+
+plot(e, 'ROC') +
+mtext(substitute(paste('Sensitivity vs. 1-specificity for ', italic('Anas acuta'))))
+  
+threshold(e)
+
+```
