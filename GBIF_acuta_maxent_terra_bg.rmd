@@ -66,8 +66,8 @@ locs.vals <- locs.vals[, 2:length(locs.vals)]
 print(paste("Records remaining:", nrow(aacuta)))
 bgExt <- ext(apply(aacuta[, c('lon', 'lat')], 2, range)) + 0.5
 
-plot(wrld)
-lines(bgExt, lwd=2, col="red")
+# plot(wrld)
+# lines(bgExt, lwd=2, col="red")
 
 # crop the environmental rasters by the background extent shape
 envsBgCrop <- crop(envs, bgExt)
@@ -84,7 +84,7 @@ bg.vals <- extract(envs, bg.xy)
 print(paste("Number of background points:", nrow(bg.xy)))
 dat <- rbind(locs.vals, bg.vals)
 p <- c(rep(1, nrow(locs.vals)), rep(0, nrow(bg.vals)))
-MaxEnt(dat, p)
+me_bg <- MaxEnt(dat, p)
 ```
 
 # Build and Evaluate Niche Model
@@ -112,6 +112,13 @@ points(occs.xy, col=gray.colors(1, alpha=0.5), pch = 16, cex = 0.5)
 mtext(substitute(paste('Suitability for ', italic('Anas acuta'))))
 ```
 
+```{r}
+r <- predict(me_bg, envsBgCrop)
+plot(r)
+points(occs.xy, col=gray.colors(1, alpha=0.5), pch = 16, cex = 0.5)
+mtext(substitute(paste('Suitability for ', italic('Anas acuta'), '(with background points)')))
+```
+
 # Evaluate Species Distribution Modelling (SDM)
 ```{r}
 occs.xy <- aacuta[c('lon', 'lat')]
@@ -135,3 +142,14 @@ mtext(substitute(paste('Sensitivity vs. 1-specificity for ', italic('Anas acuta'
   
 e@thresholds
 ```
+
+```{r}
+# aacuta <- vect(aacuta)
+# r <- rasterize(aacuta, envsBgCrop, fun="count")
+# r
+# 
+# plot(wrld, col="gray", ext=ext(r), border=NA)
+# plot(r, add=TRUE)
+# lines(wrld)
+```
+
