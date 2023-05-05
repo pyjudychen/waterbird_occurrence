@@ -3,6 +3,8 @@ title: Maxent model of northern pintail (Anus acuta)
 author: Pin-Yuan Chen | Winter 2023
 date: 1/24/2023
 output: html_document
+editor_options: 
+  chunk_output_type: console
 ---
 
 # Load packages and data
@@ -13,7 +15,13 @@ library(predicts)
 
 ## GBIF data
 ```{r}
-setwd('C:/Users/judy8/Box/PhD_UCD/Data')
+if (system('hostname', TRUE) == "LAPTOP-IVSPBGCA") { 
+  wd <- "C:/github/waterbird_occurrence"
+} else { 
+  wd <- 'C:/Users/judy8/Box/PhD_UCD/Data'
+}
+setwd(wd)
+
 aacuta <- read.csv('aacuta_clean.csv')
 
 aacuta <- aacuta[, c('year', 'month', 'decimalLongitude', 'decimalLatitude')]
@@ -74,9 +82,9 @@ envsBgCrop <- crop(envs, bgExt)
 # dim(envsBgCrop)
 
 # sample random background points
-bg.xy <- predicts::backgroundSample(envsBgCrop, 5000)
+bg.xy <- predicts::backgroundSample(envsBgCrop, 10000)
 bg.vals <- extract(envs, bg.xy)
-
+points(bg.xy, cex=.1)
 # plot(bg.xy)
 # points(aacuta, col = 'red')
 
@@ -84,22 +92,15 @@ bg.vals <- extract(envs, bg.xy)
 print(paste("Number of background points:", nrow(bg.xy)))
 dat <- rbind(locs.vals, bg.vals)
 p <- c(rep(1, nrow(locs.vals)), rep(0, nrow(bg.vals)))
-me_bg <- MaxEnt(dat, p)
+pdat <- unique(cbind(p, dat))
+me_bg <- MaxEnt(pdat[,-1], pdat[,1])
+me_bg
 ```
 
-# Build and Evaluate Niche Model
-```{r}
-occs.xy <- aacuta[c('lon', 'lat')]
-group.data <- ENMeval::get.randomkfold(occ=occs.xy, bg=bg.xy, kfolds=3)
-
-# pull out the occurrence and background partition group numbers from the list
-occs.grp <- group.data[[1]]
-bg.grp <- group.data[[2]]
-```
 
 # Run Maxent Model & see the maxent results in a browser
 ```{r}
-me <- MaxEnt(envsBgCrop, aacuta, args=c("-J", "-P"))
+me <- MaxEnt(envsBgCrop, aacuta, nbg=10000 ) #, args=c("-J", "-P"))
 me
 #partialResponse(me)
 plot(me)
@@ -107,19 +108,22 @@ plot(me)
 
 ```{r}
 r <- predict(me, envsBgCrop)
+par(mfrow=c(1,2))
 plot(r)
 points(occs.xy, col=gray.colors(1, alpha=0.5), pch = 16, cex = 0.5)
 mtext(substitute(paste('Suitability for ', italic('Anas acuta'))))
 ```
 
 ```{r}
-r <- predict(me_bg, envsBgCrop)
-plot(r)
+rbg <- predict(me_bg, envsBgCrop)
+plot(rbg)
 points(occs.xy, col=gray.colors(1, alpha=0.5), pch = 16, cex = 0.5)
 mtext(substitute(paste('Suitability for ', italic('Anas acuta'), '(with background points)')))
 ```
 
+
 # Evaluate Species Distribution Modelling (SDM)
+
 ```{r}
 occs.xy <- aacuta[c('lon', 'lat')]
 nfolds <- 5
